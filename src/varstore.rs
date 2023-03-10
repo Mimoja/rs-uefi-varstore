@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::attribute::EfiAttribute;
+use crate::status::EfiStatus;
 
 #[derive(Debug, Clone)]
 pub struct EfiVariable {
@@ -67,6 +68,88 @@ impl Varstore {
         }
         var
     }
+
+    fn request_set(
+        &mut self,
+        name: &String,
+        data: &EfiVariable,
+        append: bool,
+    ) -> Result<Option<EfiVariable>, EfiStatus> {
+        if name.len() > self.max_name_length {
+            return Err(EfiStatus::InvalidParameter);
+        }
+
+        if data.data.len() > self.max_data_length {
+            return Err(EfiStatus::InvalidParameter);
+        }
+
+        if data.attr.contains(EfiAttribute::HARDWARE_ERROR) {
+            return Err(EfiStatus::InvalidParameter);
+        }
+
+        /* Authenticated write access is deprecated and is not supported. */
+        if data.attr.contains(EfiAttribute::AUTHENTICATED_WRITE_ACCESS) {
+            return Err(EfiStatus::Unsupported);
+        }
+
+        /* Only one type of authentication may be used at a time */
+        if data.attr.contains(
+            EfiAttribute::TIME_BASED_AUTHENTICATED_WRITE_ACCESS
+                | EfiAttribute::ENHANCED_AUTHENTICATED_ACCESS,
+        ) {
+            return Err(EfiStatus::SecurityViolation);
+        }
+
+        /* Enhanced authenticated access is not yet implemented. */
+        if data
+            .attr
+            .contains(EfiAttribute::ENHANCED_AUTHENTICATED_ACCESS)
+        {
+            return Err(EfiStatus::Unsupported);
+        }
+
+        /* Time based authenticated access is not yet implemented. */
+        if data
+            .attr
+            .contains(EfiAttribute::TIME_BASED_AUTHENTICATED_WRITE_ACCESS)
+        {
+            return Err(EfiStatus::Unsupported);
+        }
+
+        /* If runtime access is set, bootservice access must also be set. */
+        if data.attr.contains(EfiAttribute::RUNTIME_ACCESS)
+            && !data.attr.contains(EfiAttribute::BOOTSERVICE_ACCESS)
+        {
+            return Err(EfiStatus::InvalidParameter);
+        }
+
+        let mut new_var = data.clone();
+        let old_var = self.variables.get(name);
+        if let Some(exist) = old_var {
+            if exist.attr != new_var.attr {
+                return Err(EfiStatus::InvalidParameter);
+            }
+            
+            if self.bootservices_exited && !new_var.attr.contains(EfiAttribute::RUNTIME_ACCESS)
+            {
+                return Err(EfiStatus::InvalidParameter);
+            }
+
+            if append {
+                let mut old_data = exist.data.clone();
+
+                old_data.append(&mut new_var.data);
+                new_var.data = old_data;
+            /* Zero sized append is a no-op and not a delete */
+            } else if new_var.data.len() == 0 {
+                self.variables.remove(&name.to_owned());
+                return Ok(None);
+            }
+        }
+        self.variables.insert(name.to_owned(), new_var.to_owned());
+        Ok(None)
+    }
+
 }
 
 #[cfg(test)]
@@ -175,5 +258,102 @@ mod tests {
                 .data,
             vec![4, 3, 2, 1]
         );
+    }
+
+    #[test]
+    fn set_simple() {
+        let mut varstore = Varstore::new();
+
+        varstore.request_set(
+            &String::from("Test1"),
+            &mut EfiVariable::new(
+                vec![1, 2, 3, 4],
+                EfiAttribute::BOOTSERVICE_ACCESS | EfiAttribute::RUNTIME_ACCESS,
+            ),
+            false
+        );
+        varstore.request_set(
+            &String::from("Test2"),
+            &mut EfiVariable::new(
+                vec![2, 3, 4, 5],
+                EfiAttribute::BOOTSERVICE_ACCESS | EfiAttribute::RUNTIME_ACCESS,
+            ),
+            false
+        );
+        varstore.request_set(
+            &String::from("Test3"),
+            &mut EfiVariable::new(
+                vec![3, 4, 5, 6],
+                EfiAttribute::BOOTSERVICE_ACCESS | EfiAttribute::RUNTIME_ACCESS,
+            ),
+            false
+        );
+        assert_eq!(varstore.variables.len(), 3);
+    }
+
+    #[test]
+    fn set_delete() {
+        let mut varstore = Varstore::new();
+
+        varstore.request_set(
+            &String::from("RuntimeAccess"),
+            &mut EfiVariable::new(
+                vec![1, 2, 3, 4],
+                EfiAttribute::BOOTSERVICE_ACCESS | EfiAttribute::RUNTIME_ACCESS,
+            ),
+            false
+        );
+        varstore.request_set(
+            &String::from("BootAccess"),
+            &mut EfiVariable::new(
+                vec![2, 3, 4, 5],
+                EfiAttribute::BOOTSERVICE_ACCESS
+            ),
+            false
+        );
+        assert!(varstore.request_get(&String::from("RuntimeAccess")).is_some());
+
+        // Delete by setting empty payload
+        varstore.request_set(
+            &String::from("RuntimeAccess"),
+            &mut EfiVariable::new(
+                vec![],
+                EfiAttribute::BOOTSERVICE_ACCESS | EfiAttribute::RUNTIME_ACCESS,
+            ),
+            false
+        );
+        assert!(varstore.request_get(&String::from("RuntimeAccess")).is_none());
+
+        // Append with 0 size payload is a no-op
+        varstore.request_set(
+            &String::from("BootAccess"),
+            &mut EfiVariable::new(
+                vec![],
+                EfiAttribute::BOOTSERVICE_ACCESS,
+            ),
+            true
+        );
+
+        assert!(varstore.request_get(&String::from("BootAccess")).is_some());
+        assert_eq!(
+            varstore.request_get(&String::from("BootAccess")).unwrap().data,
+            vec![2, 3, 4, 5],
+        );
+
+        varstore.bootservices_exited = true;
+    
+        // Cannot delete boottime accessible during runtime
+        assert_eq!(varstore.variables.len(), 1);
+
+        varstore.request_set(
+            &String::from("BootAccess"),
+            &mut EfiVariable::new(
+                vec![],
+                EfiAttribute::BOOTSERVICE_ACCESS,
+            ),
+            false
+        );
+        assert_eq!(varstore.variables.len(), 1);
+
     }
 }

@@ -14,6 +14,7 @@ static PRIMARY_VARSTORE: Mutex<Varstore> = Mutex::new(Varstore::new());
 ///
 /// The C passed pointers will be zero checked and dereferenced.
 /// It is in the callers interest to ensure they are memory backed if not null
+#[no_mangle]
 pub unsafe extern "C" fn get_variable(
     c_variable_name: *const uefi::CString16,
     c_vendor_guid: *const uefi::Guid,

@@ -83,7 +83,7 @@ impl Varstore {
                 }
                 *name = next.name.clone();
                 *name_size = new_size;
-             EfiStatus::SUCCESS
+                EfiStatus::SUCCESS
             }
             NextResponse::EndReached => EfiStatus::NOT_FOUND,
             NextResponse::Invalid => EfiStatus::INVALID_PARAMETER,

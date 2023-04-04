@@ -1,7 +1,7 @@
 use std::usize;
 
 use uefi::table::runtime::VariableAttributes as EfiAttributes;
-use uefi::{Status as EfiStatus};
+use uefi::Status as EfiStatus;
 
 pub const DEFAULT_NAMESPACE_GUID: uefi::Guid = uefi::guid!("8be4df61-93ca-11d2-aa0d-00e098032b8c");
 
@@ -157,11 +157,14 @@ impl Varstore {
             .position(|x| *x.name == *name && x.guid == guid)
     }
 
-    pub fn request_query_variable_info(&mut self, _attr: EfiAttributes,
+    pub fn request_query_variable_info(
+        &mut self,
+        _attr: EfiAttributes,
         _maximum_variable_storage_size: &usize,
         _remaining_variable_storage_size: &usize,
-        _maximum_variable_size: &usize) -> EfiStatus {
-            EfiStatus::UNSUPPORTED
+        _maximum_variable_size: &usize,
+    ) -> EfiStatus {
+        EfiStatus::UNSUPPORTED
     }
 
     pub fn request_set(&mut self, var_in: &EfiVariable) -> Result<(), uefi::Status> {
@@ -241,12 +244,10 @@ impl Varstore {
                 if new_var.data.is_empty() {
                     return Ok(());
                 }
-
             }
             let index = self.get_index(&data.name, data.guid).unwrap();
             if new_var.data.is_empty() {
-                self.variables
-                    .remove(index);
+                self.variables.remove(index);
                 return Ok(());
             }
             self.variables[index] = data;
@@ -428,14 +429,14 @@ mod tests {
         let data = EfiVariable::new(
             "Test".to_string(),
             TESTING_GUID,
-            vec![1, 2, 3, 4,5,6,7,8,9,10,11,12,13],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
             EfiAttributes::BOOTSERVICE_ACCESS,
         );
 
         let name = EfiVariable::new(
             "NameIsDefintelyLongerThanTenCharacters".to_string(),
             TESTING_GUID,
-            vec![1, 2, 3, 4,5,6,7,8,9,10,11,12,13],
+            vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
             EfiAttributes::BOOTSERVICE_ACCESS,
         );
 
@@ -463,7 +464,7 @@ mod tests {
         varstore.request_set(&test).unwrap();
 
         let mut test = var.clone();
-        test.data = vec![9,8,7,6];
+        test.data = vec![9, 8, 7, 6];
         varstore.request_set(&test).unwrap();
         assert_eq!(varstore.variables.len(), 1);
 
@@ -472,10 +473,9 @@ mod tests {
                 .request_get(&String::from("Test"), TESTING_GUID)
                 .unwrap()
                 .data,
-                vec![9,8,7,6],
+            vec![9, 8, 7, 6],
         );
     }
-
 
     #[test]
     fn set_delete() {
